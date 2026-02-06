@@ -9,7 +9,7 @@ import time
 app = FastAPI(title="Hand-E Demo App")
 
 # Configuration Hand-E
-API_URL = os.getenv("HAND_E_API_URL", "http://backend:3000/api")
+API_URL = os.getenv("HAND_E_API_URL", "http://localhost:3001/api")
 APP_SECRET = os.getenv("HAND_E_APP_SECRET")
 DEPLOYMENT_ID = os.getenv("HAND_E_DEPLOYMENT_ID")
 
