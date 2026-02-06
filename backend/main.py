@@ -177,7 +177,7 @@ async def execute_task():
                 )
                 response.raise_for_status()
             except Exception as e:
-                raise HTTPException(status_code=500, detail=str(e))
+                raise HTTPException(status_code=500, detail=f"Injoignable ({API_URL}): {str(e)}")
     else:
         # Mode hors ligne pour le test local
         print("[Offline] Usage reported: task_execution = 1.0")
