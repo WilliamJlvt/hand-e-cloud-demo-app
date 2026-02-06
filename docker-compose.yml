@@ -10,7 +10,7 @@ services:
       - "traefik.http.services.demo-${HAND_E_DEPLOYMENT_ID}.loadbalancer.server.port=8000"
       - "traefik.docker.network=hand-e-network"
     environment:
-      - HAND_E_API_URL=${HAND_E_API_URL}
+      - HAND_E_API_URL=http://localhost:3001/api
       - HAND_E_APP_SECRET=${HAND_E_APP_SECRET}
       - HAND_E_DEPLOYMENT_ID=${HAND_E_DEPLOYMENT_ID}
     networks:
