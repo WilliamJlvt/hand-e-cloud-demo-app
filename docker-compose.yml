@@ -1,28 +1,23 @@
 version: '3.8'
 
 services:
-  demo-proxy:
-    build: ./nginx
+  demo-app:
+    build: 
+      context: ./backend
+      dockerfile: Dockerfile
     container_name: hand-e-${HAND_E_DEPLOYMENT_ID}
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.demo-${HAND_E_DEPLOYMENT_ID}.rule=Host(`${HAND_E_HOST}`)"
-      - "traefik.http.services.demo-${HAND_E_DEPLOYMENT_ID}.loadbalancer.server.port=80"
+      - "traefik.http.services.demo-${HAND_E_DEPLOYMENT_ID}.loadbalancer.server.port=8000"
       - "traefik.docker.network=hand-e-network"
-    networks:
-      - hand-e-network
-      - internal
-
-  demo-backend:
-    build: ./backend
     environment:
       - HAND_E_API_URL=${HAND_E_API_URL}
       - HAND_E_APP_SECRET=${HAND_E_APP_SECRET}
       - HAND_E_DEPLOYMENT_ID=${HAND_E_DEPLOYMENT_ID}
     networks:
-      - internal
+      - hand-e-network
 
 networks:
   hand-e-network:
     external: true
-  internal:
