@@ -180,7 +180,7 @@ async def execute_task():
                     headers={"X-HandE-Secret": APP_SECRET}
                 )
                 print(f"[SDK] Response Status: {response.status_code}")
-                if response.status_code != 200:
+                if response.status_code not in [200, 201]:
                     print(f"[SDK] Error Body: {response.text}")
                 response.raise_for_status()
             except Exception as e:
