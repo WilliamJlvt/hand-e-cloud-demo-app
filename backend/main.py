@@ -66,13 +66,17 @@ async def root(request: Request):
     user_token = request.cookies.get(COOKIE_NAME)
     current_user = await get_current_sdk_user(user_token) if user_token else None
     login_error = request.query_params.get("error")
+    error_code = request.query_params.get("code", "")
     error_messages = {
         "offline": "SDK non configuré (mode hors ligne).",
         "invalid": "Email ou mot de passe incorrect.",
+        "forbidden": "Vous n'êtes pas dans la liste d'accès de ce déploiement (mode restreint).",
         "no_token": "Réponse Hand-E invalide.",
-        "injoignable": "Impossible de joindre Hand-E.",
+        "injoignable": "Impossible de joindre l'API Hand-E. Vérifiez HAND_E_API_URL (ex. port 3000 si le backend Nest écoute sur 3000).",
     }
     error_text = error_messages.get(login_error, _h(login_error)) if login_error else ""
+    if error_code:
+        error_text = f"{error_text or 'Erreur'} (HTTP {_h(error_code)})"
     owner_id = context.get("user", {}).get("id") or ""
     is_owner = bool(current_user and owner_id and current_user.get("id") == owner_id)
 
@@ -272,19 +276,32 @@ async def login(
 ):
     if not APP_SECRET:
         return RedirectResponse(url="/?error=offline", status_code=303)
+    url = f"{API_URL}/sdk/auth/login"
     async with httpx.AsyncClient() as client:
         try:
             response = await client.post(
-                f"{API_URL}/sdk/auth/login",
+                url,
                 json={"email": email.strip(), "password": password},
                 headers={"X-HandE-Secret": APP_SECRET},
                 timeout=10.0,
             )
             if response.status_code != 200:
-                return RedirectResponse(url="/?error=invalid", status_code=303)
+                # Log pour diagnostiquer (réponse Hand-E)
+                try:
+                    body = response.json()
+                    err_msg = body.get("message", body.get("error", response.text))
+                except Exception:
+                    err_msg = response.text
+                print(f"[Login] Hand-E {response.status_code} {url}: {err_msg}")
+                if response.status_code == 403:
+                    return RedirectResponse(url="/?error=forbidden", status_code=303)
+                if response.status_code == 401:
+                    return RedirectResponse(url="/?error=invalid", status_code=303)
+                return RedirectResponse(url=f"/?error=invalid&code={response.status_code}", status_code=303)
             data = response.json()
             token = data.get("token")
             if not token:
+                print("[Login] Hand-E 200 but no token in response")
                 return RedirectResponse(url="/?error=no_token", status_code=303)
             redir = RedirectResponse(url="/", status_code=303)
             redir.set_cookie(
@@ -296,7 +313,11 @@ async def login(
                 path="/",
             )
             return redir
-        except Exception:
+        except httpx.ConnectError as e:
+            print(f"[Login] Cannot reach Hand-E {url}: {e}")
+            return RedirectResponse(url="/?error=injoignable", status_code=303)
+        except Exception as e:
+            print(f"[Login] Error: {e}")
             return RedirectResponse(url="/?error=injoignable", status_code=303)
 
 
