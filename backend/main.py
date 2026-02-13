@@ -3,10 +3,10 @@ from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 import httpx
 import os
 import html
+import json
 
-app = FastAPI(title="Hand-E Demo App")
+app = FastAPI(title="Reactor — Hand-E Demo Chatbot")
 
-# Configuration Hand-E
 API_URL = os.getenv("HAND_E_API_URL", "http://localhost:3001/api")
 APP_SECRET = os.getenv("HAND_E_APP_SECRET")
 DEPLOYMENT_ID = os.getenv("HAND_E_DEPLOYMENT_ID")
@@ -15,7 +15,7 @@ print(f"APP_SECRET: {'***' if APP_SECRET else 'None'}")
 print(f"DEPLOYMENT_ID: {DEPLOYMENT_ID}")
 
 COOKIE_NAME = "hande_user_token"
-COOKIE_MAX_AGE = 7 * 24 * 3600  # 7 days
+COOKIE_MAX_AGE = 7 * 24 * 3600
 
 
 async def get_hand_e_context():
@@ -53,8 +53,11 @@ async def get_current_sdk_user(user_token: str | None) -> dict | None:
 
 
 def _h(s: str) -> str:
-    """Escape for HTML."""
     return html.escape(s) if s else ""
+
+
+def _js(obj) -> str:
+    return json.dumps(obj, ensure_ascii=False)
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -62,53 +65,33 @@ async def root(request: Request):
     context = await get_hand_e_context()
     user_token = request.cookies.get(COOKIE_NAME)
     current_user = await get_current_sdk_user(user_token) if user_token else None
-    access_mode = context.get("accessMode", "PUBLIC")
-    access_mode_label = "Public (*)" if access_mode == "PUBLIC" else "Liste restreinte"
     login_error = request.query_params.get("error")
     error_messages = {
         "offline": "SDK non configuré (mode hors ligne).",
         "invalid": "Email ou mot de passe incorrect.",
         "no_token": "Réponse Hand-E invalide.",
-        "injoignable": "Impossible de joindre Hand-E. Vérifiez HAND_E_API_URL.",
+        "injoignable": "Impossible de joindre Hand-E.",
     }
     error_text = error_messages.get(login_error, _h(login_error)) if login_error else ""
+    owner_id = context.get("user", {}).get("id") or ""
+    is_owner = bool(current_user and owner_id and current_user.get("id") == owner_id)
 
-    # Contexte pour le template
-    owner_email = context.get("user", {}).get("email", "Invité")
-    owner_company = context.get("user", {}).get("company", "N/A")
-    pricing = context.get("application", {}).get("pricingModel", "FREE")
-    memory = context.get("resources", {}).get("memory", "512m")
-
-    if current_user:
-        login_block = f"""
-            <div class="rounded-xl bg-emerald-50 border border-emerald-100 p-4">
-                <p class="text-sm font-semibold text-emerald-800">Connecté (SDK)</p>
-                <p class="mt-1 text-slate-700">{_h(current_user.get("email", ""))}</p>
-                <form method="post" action="/logout" class="mt-3">
-                    <button type="submit" class="text-sm text-emerald-600 hover:text-emerald-800 font-medium">Se déconnecter</button>
-                </form>
-            </div>
-        """
-        usage_note = f"L'usage sera attribué à <strong>{_h(current_user.get('email', ''))}</strong>."
-    else:
-        error_html = f'<div class="mb-3 rounded-lg bg-red-50 border border-red-100 text-red-700 px-3 py-2 text-sm">{error_text}</div>' if error_text else ""
-        login_block = f"""
-            <div class="rounded-xl bg-slate-50 border border-slate-200 p-4">
-                <p class="text-sm font-semibold text-slate-700 mb-3">Connexion (compte Hand-E)</p>
-                {error_html}
-                <form method="post" action="/login" class="space-y-3">
-                    <input type="email" name="email" placeholder="Email" required
-                        class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" />
-                    <input type="password" name="password" placeholder="Mot de passe" required
-                        class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" />
-                    <button type="submit" class="w-full bg-slate-900 hover:bg-slate-800 text-white text-sm font-medium py-2 px-4 rounded-lg">
-                        Se connecter
-                    </button>
-                </form>
-                <p class="mt-2 text-xs text-slate-500">En mode liste restreinte, seuls les utilisateurs autorisés peuvent se connecter.</p>
-            </div>
-        """
-        usage_note = "Connectez-vous pour attribuer l'usage à votre compte (KPIs par utilisateur)."
+    # Données pour le front
+    page_config = {
+        "ownerId": owner_id,
+        "currentUser": (
+            {
+                "id": current_user.get("id"),
+                "email": current_user.get("email"),
+                "firstName": current_user.get("firstName"),
+                "lastName": current_user.get("lastName"),
+            }
+            if current_user
+            else None
+        ),
+        "isOwner": is_owner,
+        "loginError": error_text,
+    }
 
     html_content = f"""
     <!DOCTYPE html>
@@ -116,122 +99,164 @@ async def root(request: Request):
     <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Hand-E Demo App</title>
+        <title>Reactor — Chatbot Hand-E</title>
         <script src="https://cdn.tailwindcss.com"></script>
-        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/animate.css/4.1.1/animate.min.css"/>
     </head>
-    <body class="bg-slate-50 min-h-screen font-sans text-slate-900">
-        <div class="max-w-4xl mx-auto py-12 px-4">
-            <header class="flex items-center justify-between mb-12 animate__animated animate__fadeInDown">
-                <div class="flex items-center gap-4">
-                    <div class="bg-emerald-600 text-white p-3 rounded-2xl shadow-lg shadow-emerald-200">
-                        <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
-                        </svg>
-                    </div>
-                    <div>
-                        <h1 class="text-2xl font-bold">Hand-E App Demo</h1>
-                        <p class="text-slate-500 text-sm">Identité : {_h((DEPLOYMENT_ID or "Locale")[:8])}</p>
-                    </div>
+    <body class="bg-slate-950 text-slate-100 min-h-screen font-sans antialiased">
+        <div id="app" class="flex flex-col h-screen max-w-3xl mx-auto">
+            <!-- Barre supérieure: logo + login ou user + admin -->
+            <header class="flex items-center justify-between px-4 py-3 border-b border-slate-800 shrink-0">
+                <div class="flex items-center gap-2">
+                    <span class="text-emerald-400 font-bold text-lg">Reactor</span>
+                    <span class="text-slate-500 text-xs">Hand-E SDK</span>
                 </div>
-                <span class="px-4 py-1.5 rounded-full text-xs font-bold tracking-wider uppercase bg-emerald-100 text-emerald-700 border border-emerald-200">
-                    Hand-E Native
-                </span>
+                <div id="headerAuth" class="flex items-center gap-3"></div>
             </header>
 
-            <div class="grid md:grid-cols-2 gap-8">
-                <section class="bg-white p-8 rounded-3xl border border-slate-200 shadow-sm animate__animated animate__fadeInLeft animate__delay-1s">
-                    <h2 class="text-lg font-bold mb-6 flex items-center gap-2">
-                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-slate-400" viewBox="0 0 20 20" fill="currentColor">
-                            <path fill-rule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clip-rule="evenodd" />
-                        </svg>
-                        Contexte Hand-E
-                    </h2>
-                    <div class="space-y-4">
-                        <div class="flex justify-between items-center py-3 border-b border-slate-50">
-                            <span class="text-slate-500">Propriétaire déploiement</span>
-                            <span class="font-semibold text-slate-700">{_h(owner_email)}</span>
-                        </div>
-                        <div class="flex justify-between items-center py-3 border-b border-slate-50">
-                            <span class="text-slate-500">Entreprise</span>
-                            <span class="font-semibold text-slate-700">{_h(owner_company)}</span>
-                        </div>
-                        <div class="flex justify-between items-center py-3 border-b border-slate-50">
-                            <span class="text-slate-500">Mode d'accès</span>
-                            <span class="px-3 py-1 rounded-lg text-xs font-bold { 'bg-sky-100 text-sky-700' if access_mode == 'PUBLIC' else 'bg-amber-100 text-amber-700' }">{_h(access_mode_label)}</span>
-                        </div>
-                        <div class="flex justify-between items-center py-3 border-b border-slate-50">
-                            <span class="text-slate-500">Plan Tarifaire</span>
-                            <span class="px-3 py-1 bg-amber-100 text-amber-700 rounded-lg text-xs font-bold">{_h(pricing)}</span>
-                        </div>
-                        <div class="flex justify-between items-center py-3">
-                            <span class="text-slate-500">Mémoire Allouée</span>
-                            <span class="font-semibold text-slate-700">{_h(memory)}</span>
-                        </div>
-                    </div>
-
-                    <h3 class="text-sm font-bold mt-6 mb-3 text-slate-700">Utilisateur connecté (SDK)</h3>
-                    {login_block}
-                </section>
-
-                <section class="bg-white p-8 rounded-3xl border border-slate-200 shadow-sm animate__animated animate__fadeInRight animate__delay-1s">
-                    <h2 class="text-lg font-bold mb-6 flex items-center gap-2">
-                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-slate-400" viewBox="0 0 20 20" fill="currentColor">
-                            <path d="M4 4a2 2 0 00-2 2v1h16V6a2 2 0 00-2-2H4z" />
-                            <path fill-rule="evenodd" d="M18 9H2v5a2 2 0 002 2h12a2 2 0 002-2V9zM4 13a1 1 0 011-1h1a1 1 0 110 2H5a1 1 0 01-1-1zm5-1a1 1 0 100 2h1a1 1 0 100-2H9z" clip-rule="evenodd" />
-                        </svg>
-                        Test de Consommation
-                    </h2>
-                    <p class="text-slate-500 text-sm mb-2 leading-relaxed">
-                        Cliquez pour simuler une action payante. Le SDK enverra un rapport d'usage à Hand-E.
-                    </p>
-                    <p class="text-slate-500 text-xs mb-6">{usage_note}</p>
-                    <button id="taskBtn" onclick="executeTask()" class="w-full bg-slate-900 hover:bg-slate-800 text-white font-bold py-4 px-6 rounded-2xl transition-all active:scale-95 shadow-xl shadow-slate-200 flex items-center justify-center gap-3">
-                        <span id="btnText">Exécuter une tâche (+1.0 unité)</span>
-                        <div id="btnLoader" class="hidden animate-spin rounded-full h-5 w-5 border-2 border-white border-t-transparent"></div>
+            <!-- Zone login (si non connecté) -->
+            <div id="loginSection" class="p-6 border-b border-slate-800">
+                <p class="text-sm text-slate-400 mb-3">Connectez-vous pour discuter et voir votre consommation.</p>
+                <div id="loginError" class="mb-3 hidden rounded-lg bg-red-900/30 border border-red-800 text-red-200 px-3 py-2 text-sm"></div>
+                <form id="loginForm" method="post" action="/login" class="space-y-3">
+                    <input type="email" name="email" placeholder="Email" required
+                        class="w-full rounded-lg bg-slate-800 border border-slate-700 px-3 py-2 text-sm text-white placeholder-slate-500 focus:ring-1 focus:ring-emerald-500" />
+                    <input type="password" name="password" placeholder="Mot de passe" required
+                        class="w-full rounded-lg bg-slate-800 border border-slate-700 px-3 py-2 text-sm text-white placeholder-slate-500 focus:ring-1 focus:ring-emerald-500" />
+                    <button type="submit" class="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-medium py-2 px-4 rounded-lg text-sm">
+                        Se connecter
                     </button>
-                    <div id="feedback" class="mt-6 hidden animate__animated animate__fadeInUp">
-                        <div class="bg-emerald-50 border border-emerald-100 text-emerald-700 px-4 py-3 rounded-xl text-sm flex items-center gap-3">
-                            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                                <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" />
-                            </svg>
-                            Usage rapporté avec succès !
-                        </div>
-                    </div>
-                </section>
+                </form>
             </div>
 
-            <footer class="mt-12 text-center text-slate-400 text-sm">
-                Démo propulsée par le Hand-E SDK — Login, accès restreint et consommation par utilisateur
-            </footer>
+            <!-- Zone chat (si connecté) -->
+            <div id="chatSection" class="hidden flex-1 flex flex-col min-h-0">
+                <div id="messages" class="flex-1 overflow-y-auto p-4 space-y-4"></div>
+                <div class="p-4 border-t border-slate-800">
+                    <form id="chatForm" class="flex gap-2">
+                        <input id="chatInput" type="text" placeholder="Écrivez un message..."
+                            class="flex-1 rounded-xl bg-slate-800 border border-slate-700 px-4 py-3 text-sm text-white placeholder-slate-500 focus:ring-1 focus:ring-emerald-500" />
+                        <button type="submit" class="bg-emerald-600 hover:bg-emerald-500 text-white font-medium px-5 py-3 rounded-xl text-sm shrink-0">
+                            Envoyer
+                        </button>
+                    </form>
+                    <p class="mt-2 text-xs text-slate-500">Chaque message rapporte 1 unité d'usage (attribuée à votre compte).</p>
+                </div>
+            </div>
+
+            <!-- Onglet Admin (propriétaire uniquement) -->
+            <div id="adminSection" class="hidden border-t border-slate-800 flex flex-col max-h-80">
+                <div class="flex items-center justify-between px-4 py-3 border-b border-slate-800">
+                    <span class="font-semibold text-slate-200">Admin — Consommation par utilisateur</span>
+                    <button id="adminRefresh" type="button" class="text-sm text-emerald-400 hover:text-emerald-300">Rafraîchir</button>
+                </div>
+                <div id="adminContent" class="flex-1 overflow-auto p-4 text-sm">
+                    <p class="text-slate-500">Chargement...</p>
+                </div>
+            </div>
         </div>
 
         <script>
-            async function executeTask() {{
-                const btn = document.getElementById('taskBtn');
-                const btnText = document.getElementById('btnText');
-                const btnLoader = document.getElementById('btnLoader');
-                const feedback = document.getElementById('feedback');
-                btn.disabled = true;
-                btnText.textContent = 'Envoi au SDK...';
-                btnLoader.classList.remove('hidden');
-                feedback.classList.add('hidden');
-                try {{
-                    const response = await fetch('/execute-task', {{ method: 'POST', credentials: 'same-origin' }});
-                    const data = await response.json();
-                    if (response.ok) {{
-                        feedback.classList.remove('hidden');
-                    }} else {{
-                        alert('Erreur: ' + (data.detail || data.message || 'inconnue'));
-                    }}
-                }} catch (e) {{
-                    alert('Erreur réseau');
-                }} finally {{
-                    btn.disabled = false;
-                    btnText.textContent = 'Exécuter une tâche (+1.0 unité)';
-                    btnLoader.classList.add('hidden');
+            const CONFIG = {_js(page_config)};
+
+            (function() {{
+                const headerAuth = document.getElementById('headerAuth');
+                const loginSection = document.getElementById('loginSection');
+                const chatSection = document.getElementById('chatSection');
+                const adminSection = document.getElementById('adminSection');
+                const loginErrorEl = document.getElementById('loginError');
+                const messagesEl = document.getElementById('messages');
+                const chatForm = document.getElementById('chatForm');
+                const chatInput = document.getElementById('chatInput');
+
+                if (CONFIG.loginError) {{
+                    loginErrorEl.textContent = CONFIG.loginError;
+                    loginErrorEl.classList.remove('hidden');
                 }}
-            }}
+
+                if (CONFIG.currentUser) {{
+                    loginSection.classList.add('hidden');
+                    chatSection.classList.remove('hidden');
+                    headerAuth.innerHTML = `
+                        <span class="text-slate-400 text-sm">${{CONFIG.currentUser.email}}</span>
+                        <form method="post" action="/logout" class="inline">
+                            <button type="submit" class="text-slate-500 hover:text-slate-300 text-xs">Déconnexion</button>
+                        </form>
+                    `;
+                    if (CONFIG.isOwner) {{
+                        adminSection.classList.remove('hidden');
+                        loadAdminConsumption();
+                    }}
+                }} else {{
+                    headerAuth.innerHTML = '<span class="text-slate-500 text-sm">Non connecté</span>';
+                }}
+
+                function addMessage(role, text, isStreaming) {{
+                    const div = document.createElement('div');
+                    div.className = 'flex gap-3 ' + (role === 'user' ? 'justify-end' : '');
+                    const bubble = document.createElement('div');
+                    bubble.className = 'max-w-[85%] rounded-2xl px-4 py-2.5 text-sm ' +
+                        (role === 'user' ? 'bg-emerald-600/80 text-white' : 'bg-slate-800 text-slate-200 border border-slate-700');
+                    bubble.textContent = text;
+                    if (isStreaming) bubble.classList.add('animate-pulse');
+                    div.appendChild(bubble);
+                    messagesEl.appendChild(div);
+                    messagesEl.scrollTop = messagesEl.scrollHeight;
+                    return bubble;
+                }}
+
+                chatForm.addEventListener('submit', async (e) => {{
+                    e.preventDefault();
+                    const text = chatInput.value.trim();
+                    if (!text) return;
+                    chatInput.value = '';
+                    addMessage('user', text, false);
+                    const botBubble = addMessage('assistant', '…', true);
+                    try {{
+                        const r = await fetch('/chat', {{
+                            method: 'POST',
+                            headers: {{ 'Content-Type': 'application/json' }},
+                            credentials: 'same-origin',
+                            body: JSON.stringify({{ message: text }})
+                        }});
+                        const data = await r.json();
+                        const reply = data.reply || 'Message reçu. (Usage enregistré.)';
+                        botBubble.classList.remove('animate-pulse');
+                        botBubble.textContent = reply;
+                    }} catch (err) {{
+                        botBubble.classList.remove('animate-pulse');
+                        botBubble.textContent = 'Erreur réseau.';
+                    }}
+                    messagesEl.scrollTop = messagesEl.scrollHeight;
+                }});
+
+                async function loadAdminConsumption() {{
+                    const el = document.getElementById('adminContent');
+                    el.innerHTML = '<p class="text-slate-500">Chargement...</p>';
+                    try {{
+                        const r = await fetch('/admin/consumption', {{ credentials: 'same-origin' }});
+                        if (!r.ok) {{
+                            el.innerHTML = '<p class="text-red-400">Réservé au propriétaire du déploiement.</p>';
+                            return;
+                        }}
+                        const data = await r.json();
+                        let html = '<p class="text-slate-400 mb-2">Crédits déploiement: <strong>' + data.deploymentCreditsUsed + '</strong></p>';
+                        if (data.anonymousTotal > 0) html += '<p class="text-slate-400 mb-2">Usage anonyme: ' + data.anonymousTotal + '</p>';
+                        html += '<table class="w-full text-left"><thead><tr class="text-slate-500 border-b border-slate-700"><th>Utilisateur</th><th>Total</th><th>Métriques</th></tr></thead><tbody>';
+                        (data.byUser || []).forEach(function(u) {{
+                            const name = (u.firstName || '') + ' ' + (u.lastName || '').trim() || u.email;
+                            const metrics = Object.entries(u.metrics || {{}}).map(function([k,v]) {{ return k + ': ' + v; }}).join(', ');
+                            html += '<tr class="border-b border-slate-800"><td class="py-2">' + (u.email || u.userId) + '</td><td class="py-2">' + u.totalValue + '</td><td class="py-2 text-slate-500">' + metrics + '</td></tr>';
+                        }});
+                        if (!data.byUser || data.byUser.length === 0) html += '<tr><td colspan="3" class="py-4 text-slate-500">Aucune donnée par utilisateur.</td></tr>';
+                        html += '</tbody></table>';
+                        el.innerHTML = html;
+                    }} catch (err) {{
+                        el.innerHTML = '<p class="text-red-400">Erreur: ' + err.message + '</p>';
+                    }}
+                }}
+
+                document.getElementById('adminRefresh').addEventListener('click', loadAdminConsumption);
+            }})();
         </script>
     </body>
     </html>
@@ -271,8 +296,8 @@ async def login(
                 path="/",
             )
             return redir
-        except Exception as e:
-            return RedirectResponse(url=f"/?error=injoignable", status_code=303)
+        except Exception:
+            return RedirectResponse(url="/?error=injoignable", status_code=303)
 
 
 @app.post("/logout")
@@ -282,34 +307,67 @@ async def logout():
     return redir
 
 
-@app.post("/execute-task")
-async def execute_task(request: Request):
-    user_token = request.cookies.get(COOKIE_NAME)
+def _sdk_headers(request: Request):
     headers = {"X-HandE-Secret": APP_SECRET} if APP_SECRET else {}
-    if user_token:
-        headers["X-HandE-User-Token"] = user_token
+    token = request.cookies.get(COOKIE_NAME)
+    if token:
+        headers["X-HandE-User-Token"] = token
+    return headers
+
+
+@app.post("/chat")
+async def chat(request: Request):
+    body = await request.json()
+    message = (body.get("message") or "").strip() or "Hello"
+    headers = _sdk_headers(request)
 
     if APP_SECRET:
-        print(f"[SDK] Reporting usage to {API_URL}/sdk/usage... (user_token={'yes' if user_token else 'no'})")
         async with httpx.AsyncClient() as client:
             try:
-                response = await client.post(
+                await client.post(
                     f"{API_URL}/sdk/usage",
-                    json={"metric": "task_execution", "value": 1.0},
+                    json={"metric": "chat_message", "value": 1.0},
                     headers=headers,
                     timeout=5.0,
                 )
-                print(f"[SDK] Response Status: {response.status_code}")
-                if response.status_code not in [200, 201]:
-                    print(f"[SDK] Error Body: {response.text}")
-                response.raise_for_status()
             except Exception as e:
-                print(f"[SDK] Request Failed: {str(e)}")
-                raise HTTPException(status_code=500, detail=f"Injoignable ({API_URL}): {str(e)}")
-    else:
-        print("[Offline] Usage reported: task_execution = 1.0")
+                print(f"[SDK] Usage failed: {e}")
 
-    return {"message": "Tâche exécutée", "reported": True}
+    # Réponse type chatbot légère
+    replies = [
+        f"Reçu : « {message} ». Votre usage a été enregistré.",
+        "Message noté. Consommation attribuée à votre compte.",
+        "OK ! Une unité d'usage a été rapportée au SDK Hand-E.",
+    ]
+    import random
+    reply = random.choice(replies)
+    return {"reply": reply, "reported": True}
+
+
+@app.get("/admin/consumption")
+async def admin_consumption(request: Request):
+    """Proxy vers Hand-E GET /sdk/consumption-by-user (réservé au propriétaire)."""
+    token = request.cookies.get(COOKIE_NAME)
+    if not token or not APP_SECRET:
+        raise HTTPException(status_code=401, detail="Non connecté")
+    async with httpx.AsyncClient() as client:
+        try:
+            response = await client.get(
+                f"{API_URL}/sdk/consumption-by-user",
+                headers={
+                    "X-HandE-Secret": APP_SECRET,
+                    "X-HandE-User-Token": token,
+                },
+                timeout=10.0,
+            )
+            if response.status_code == 403:
+                raise HTTPException(status_code=403, detail="Réservé au propriétaire du déploiement")
+            response.raise_for_status()
+            return response.json()
+        except httpx.HTTPStatusError as e:
+            raise HTTPException(status_code=e.response.status_code, detail=e.response.text)
+        except Exception as e:
+            raise HTTPException(status_code=502, detail=str(e))
 
 
 if __name__ == "__main__":
