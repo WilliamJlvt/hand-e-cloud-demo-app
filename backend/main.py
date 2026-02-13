@@ -12,6 +12,9 @@ app = FastAPI(title="Hand-E Demo App")
 API_URL = os.getenv("HAND_E_API_URL", "http://localhost:3001/api")
 APP_SECRET = os.getenv("HAND_E_APP_SECRET")
 DEPLOYMENT_ID = os.getenv("HAND_E_DEPLOYMENT_ID")
+print(f"API_URL: {API_URL}")
+print(f"APP_SECRET: {APP_SECRET}")
+print(f"DEPLOYMENT_ID: {DEPLOYMENT_ID}")
 
 async def get_hand_e_context():
     if not APP_SECRET:
@@ -168,6 +171,7 @@ async def root():
 async def execute_task():
     # Simulation de rapport d'usage
     if APP_SECRET:
+        print(f"[SDK] Reporting usage to {API_URL}/sdk/usage...")
         async with httpx.AsyncClient() as client:
             try:
                 response = await client.post(
@@ -175,8 +179,12 @@ async def execute_task():
                     json={"metric": "task_execution", "value": 1.0},
                     headers={"X-HandE-Secret": APP_SECRET}
                 )
+                print(f"[SDK] Response Status: {response.status_code}")
+                if response.status_code != 200:
+                    print(f"[SDK] Error Body: {response.text}")
                 response.raise_for_status()
             except Exception as e:
+                print(f"[SDK] Request Failed: {str(e)}")
                 raise HTTPException(status_code=500, detail=f"Injoignable ({API_URL}): {str(e)}")
     else:
         # Mode hors ligne pour le test local
