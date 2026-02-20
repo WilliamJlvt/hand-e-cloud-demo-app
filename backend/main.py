@@ -285,7 +285,7 @@ async def login(
                 headers={"X-HandE-Secret": APP_SECRET},
                 timeout=10.0,
             )
-            if response.status_code != 200:
+            if response.status_code not in (200, 201):
                 # Log pour diagnostiquer (réponse Hand-E)
                 try:
                     body = response.json()
@@ -301,7 +301,7 @@ async def login(
             data = response.json()
             token = data.get("token")
             if not token:
-                print("[Login] Hand-E 200 but no token in response")
+                print("[Login] Hand-E 2xx but no token in response")
                 return RedirectResponse(url="/?error=no_token", status_code=303)
             redir = RedirectResponse(url="/", status_code=303)
             redir.set_cookie(
