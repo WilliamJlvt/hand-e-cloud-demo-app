@@ -8,12 +8,22 @@ services:
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.demo-${HAND_E_DEPLOYMENT_ID}.rule=Host(`${HAND_E_HOST}`)"
+      - "traefik.http.routers.demo-${HAND_E_DEPLOYMENT_ID}.entrypoints=web"
+      - "traefik.http.routers.demo-${HAND_E_DEPLOYMENT_ID}.service=demo-${HAND_E_DEPLOYMENT_ID}"
       - "traefik.http.services.demo-${HAND_E_DEPLOYMENT_ID}.loadbalancer.server.port=8080"
       - "traefik.docker.network=hand-e-network"
     environment:
       - PORT=8080
+      # URL d’accès (derrière Traefik sur 8081)
+      - WEBUI_URL=http://${HAND_E_HOST}:8081
       # Optionnel: relier une instance Ollama (même réseau)
       # - OLLAMA_BASE_URL=http://ollama:11434
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O- http://127.0.0.1:8080/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
     networks:
       - hand-e-network
 
