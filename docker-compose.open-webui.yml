@@ -1,0 +1,22 @@
+# Demo app Open WebUI — même schéma Traefik / hand-e que demo-app
+# Usage: HAND_E_HOST=openwebui.deploy.example.com HAND_E_DEPLOYMENT_ID=xxx docker compose -f docker-compose.open-webui.yml up -d
+
+services:
+  demo-app:
+    image: ghcr.io/open-webui/open-webui:0.8.3-slim
+    container_name: hand-e-${HAND_E_DEPLOYMENT_ID}
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.demo-${HAND_E_DEPLOYMENT_ID}.rule=Host(`${HAND_E_HOST}`)"
+      - "traefik.http.services.demo-${HAND_E_DEPLOYMENT_ID}.loadbalancer.server.port=8080"
+      - "traefik.docker.network=hand-e-network"
+    environment:
+      - PORT=8080
+      # Optionnel: relier une instance Ollama (même réseau)
+      # - OLLAMA_BASE_URL=http://ollama:11434
+    networks:
+      - hand-e-network
+
+networks:
+  hand-e-network:
+    external: true
